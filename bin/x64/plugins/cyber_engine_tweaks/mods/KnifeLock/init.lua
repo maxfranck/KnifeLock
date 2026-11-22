@@ -1,15 +1,15 @@
 -- =============================================================================
--- KnifeLock - menu do CET
+-- KnifeLock - CET menu
 --
--- Este arquivo cuida da interface e de salvar as configurações do menu.
--- A mira é feita pelo KnifeLockAim.reds. A cada frame, este arquivo envia as
--- configurações para o redscript pelo método SetKnifeLockSettings.
+-- This file handles the user interface and the settings menu.
+-- The aiming logic lives in KnifeLockAim.reds. Every frame, this file sends the
+-- settings to the redscript side through SetKnifeLockSettings.
 --
--- As configurações são salvas em settings.txt, na mesma pasta deste arquivo,
--- e carregadas automaticamente quando o jogo abre.
+-- Settings are saved to settings.txt in the same folder as this script and are
+-- loaded automatically when the game starts.
 -- =============================================================================
 
--- Configurações mostradas no menu (valores padrão)
+-- Settings shown in the menu (default values)
 local KnifeLock = {
     enabled = false,
     maxDistance = 30.0,
@@ -21,9 +21,9 @@ local KnifeLock = {
     }
 }
 
--- Caminho do arquivo de configurações: mesma pasta deste script.
--- Tudo que depende de 'debug' e 'io' fica dentro de pcall, para que o mod
--- continue carregando mesmo se o CET restringir essas bibliotecas.
+-- Path to the settings file: the same folder as this script.
+-- Everything that depends on 'debug' and 'io' is wrapped in pcall, so the mod
+-- keeps loading even if CET restricts those libraries.
 local SETTINGS_FILE = "settings.txt"
 pcall(function()
     local info = debug.getinfo(1, "S")
@@ -39,10 +39,10 @@ local overlayOpen = false
 local settingsDirty = false
 
 -- -----------------------------------------------------------------------------
--- Salvar e carregar configurações
+-- Saving and loading settings
 -- -----------------------------------------------------------------------------
 
--- Lê o arquivo aberto e aplica os valores encontrados
+-- Reads an open file in the "key=value" format (one per line) and applies the values
 local function readSettingsFile(file)
     for line in file:lines() do
         local key, value = line:match("^(%w+)=(.+)$")
@@ -62,30 +62,30 @@ local function readSettingsFile(file)
     end
 end
 
--- Lê settings.txt (formato "chave=valor", uma por linha) e aplica os valores
+-- Loads settings.txt and applies the values
 local function loadSettings()
     local ok, err = pcall(function()
         local file = io.open(SETTINGS_FILE, "r")
         if not file then
-            print("KnifeLock: nenhuma configuração salva, usando padrões")
+            print("KnifeLock: no saved settings found, using defaults")
             return
         end
         readSettingsFile(file)
         file:close()
-        print("KnifeLock: configurações carregadas")
+        print("KnifeLock: settings loaded")
     end)
 
     if not ok then
-        print("KnifeLock: erro ao carregar configurações: " .. tostring(err))
+        print("KnifeLock: error loading settings: " .. tostring(err))
     end
 end
 
--- Grava as configurações atuais em settings.txt
+-- Writes the current settings to settings.txt
 local function saveSettings()
     local ok, err = pcall(function()
         local file = io.open(SETTINGS_FILE, "w")
         if not file then
-            print("KnifeLock: não consegui salvar as configurações em " .. SETTINGS_FILE)
+            print("KnifeLock: could not save settings to " .. SETTINGS_FILE)
             return
         end
 
@@ -101,15 +101,15 @@ local function saveSettings()
     end)
 
     if not ok then
-        print("KnifeLock: erro ao salvar configurações: " .. tostring(err))
+        print("KnifeLock: error saving settings: " .. tostring(err))
     end
 end
 
 -- -----------------------------------------------------------------------------
--- Envio ao redscript
+-- Sending settings to the redscript side
 -- -----------------------------------------------------------------------------
 
--- Envia as configurações do menu para o redscript
+-- Sends the menu settings to the redscript side
 local function pushSettings(player)
     if player == nil then return end
 
@@ -126,19 +126,19 @@ local function pushSettings(player)
 end
 
 -- -----------------------------------------------------------------------------
--- Eventos do CET
+-- CET events
 -- -----------------------------------------------------------------------------
 
 registerForEvent("onInit", function()
     loadSettings()
-    print("KnifeLock carregado")
+    print("KnifeLock loaded")
 end)
 
 registerForEvent("onOverlayOpen", function()
     overlayOpen = true
 end)
 
--- Ao fechar o overlay, salva se houve alteração
+-- When the overlay closes, save if anything changed
 registerForEvent("onOverlayClose", function()
     overlayOpen = false
     if settingsDirty then
@@ -146,7 +146,7 @@ registerForEvent("onOverlayClose", function()
     end
 end)
 
--- Envia as configurações ao jogo continuamente, para que mudanças valham na hora
+-- Send settings to the game continuously, so changes take effect immediately
 registerForEvent("onUpdate", function(dt)
     local player = Game.GetPlayer()
     if not player then return end
@@ -154,34 +154,34 @@ registerForEvent("onUpdate", function(dt)
     pushSettings(player)
 end)
 
--- Desenha o menu somente quando o overlay do CET está aberto
+-- Draw the menu only while the CET overlay is open
 registerForEvent("onDraw", function()
     if not overlayOpen then return end
 
     if ImGui.Begin("KnifeLock") then
         local changed
 
-        KnifeLock.enabled, changed = ImGui.Checkbox("Ativar KnifeLock", KnifeLock.enabled)
+        KnifeLock.enabled, changed = ImGui.Checkbox("Activate KnifeLock", KnifeLock.enabled)
         if changed then settingsDirty = true end
 
         ImGui.Separator()
 
-        KnifeLock.maxDistance, changed = ImGui.SliderFloat("Distância máxima", KnifeLock.maxDistance, 5.0, 100.0, "%.1f")
+        KnifeLock.maxDistance, changed = ImGui.SliderFloat("Max distance", KnifeLock.maxDistance, 5.0, 100.0, "%.1f")
         if changed then settingsDirty = true end
 
-        KnifeLock.viewAngle, changed = ImGui.SliderFloat("Ângulo de visão", KnifeLock.viewAngle, 1.0, 90.0, "%.1f")
+        KnifeLock.viewAngle, changed = ImGui.SliderFloat("View angle", KnifeLock.viewAngle, 1.0, 90.0, "%.1f")
         if changed then settingsDirty = true end
 
         ImGui.Separator()
-        ImGui.Text("Alvos:")
+        ImGui.Text("Targets:")
 
-        KnifeLock.targets.police, changed = ImGui.Checkbox("Policiais", KnifeLock.targets.police)
+        KnifeLock.targets.police, changed = ImGui.Checkbox("Police", KnifeLock.targets.police)
         if changed then settingsDirty = true end
 
-        KnifeLock.targets.gang, changed = ImGui.Checkbox("Membros de gangues", KnifeLock.targets.gang)
+        KnifeLock.targets.gang, changed = ImGui.Checkbox("Gang members", KnifeLock.targets.gang)
         if changed then settingsDirty = true end
 
-        KnifeLock.targets.civilian, changed = ImGui.Checkbox("Civis", KnifeLock.targets.civilian)
+        KnifeLock.targets.civilian, changed = ImGui.Checkbox("Civilians", KnifeLock.targets.civilian)
         if changed then settingsDirty = true end
     end
     ImGui.End()

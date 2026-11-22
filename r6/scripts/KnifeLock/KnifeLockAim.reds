@@ -1,62 +1,63 @@
 // =============================================================================
-// KnifeLock - AimAssist de headshot para armas de arremesso (facas e machados)
+// KnifeLock - headshot aim assist for throwing knives and throwing axes
 //
-// O que este arquivo faz:
-//   1. Enquanto o jogador mira com uma arma de arremesso, escolhe o inimigo
-//      mais próximo do crosshair, dentro do ângulo e da distância configurados,
-//      de um grupo habilitado e com linha livre até a cabeça.
-//   2. Mantém (trava) esse alvo enquanto ele continuar válido.
-//   3. Gira a câmera em direção à cabeça do alvo, com suavização.
-//   4. Solta o alvo se ele morrer, for nocauteado, ficar atrás de parede ou
-//      sair da área de travamento.
-//   5. Ao sair da mira, ou quando não houver alvo, desfaz todo o giro feito.
+// What this file does:
+//   1. While the player aims with a throwing weapon, it picks the enemy closest
+//      to the crosshair, within the configured angle and distance, from an
+//      enabled group, with a clear line of sight to the head.
+//   2. It keeps (locks onto) that target while the target remains valid.
+//   3. It steers the camera toward the target's head, with smoothing.
+//   4. It releases the target if it dies, is knocked out, goes behind a wall,
+//      or leaves the lock area.
+//   5. When the player stops aiming, or there is no target, it undoes all the
+//      camera rotation the mod applied.
 //
-// As configurações (ligar/desligar, distância, ângulo e grupos)
-// vêm do menu do CET (init.lua), por SetKnifeLockSettings.
+// The settings (enable/disable, distance, angle and groups) come from the CET
+// menu (init.lua), through SetKnifeLockSettings.
 // =============================================================================
 
 module KnifeLock
 
 // -----------------------------------------------------------------------------
-// Constantes de comportamento (não aparecem no menu)
+// Behavior constants (not shown in the menu)
 // -----------------------------------------------------------------------------
 public class KnifeLockConfig {
-    // Margem extra (graus) para manter um alvo já travado
+    // Extra margin (degrees) for keeping an already locked target
     public static func HoldAngleExtra() -> Float { return 15.0; }
 
-    // Folga (fração) da distância para manter um alvo travado. 1.1 = 10% a mais
+    // Distance tolerance (fraction) for keeping a locked target. 1.1 = 10% more
     public static func HoldDistanceSlack() -> Float { return 1.1; }
 
-    // Força da correção, de 0.05 a 1.0
+    // Correction strength, from 0.05 to 1.0
     public static func Strength() -> Float { return 1.0; }
 
-    // Erro (graus) abaixo do qual a câmera não é mais corrigida
+    // Error (degrees) below which the camera is no longer corrected
     public static func Deadzone() -> Float { return 0.5; }
 
-    // Velocidade máxima de giro (graus por segundo)
+    // Maximum turn speed (degrees per second)
     public static func MaxRate() -> Float { return 720.0; }
 
-    // Giro total máximo permitido, em graus
+    // Maximum total turn allowed, in degrees
     public static func MaxYaw() -> Float { return 90.0; }
     public static func MaxPitch() -> Float { return 70.0; }
 }
 
 // -----------------------------------------------------------------------------
-// Estado guardado no próprio jogador
+// State stored on the player
 // -----------------------------------------------------------------------------
 
-// Giro já aplicado pelo KnifeLock (para poder desfazer)
+// Rotation already applied by KnifeLock (so it can be undone)
 @addField(PlayerPuppet)
 private let m_knifeLockYaw: Float;
 
 @addField(PlayerPuppet)
 private let m_knifeLockPitch: Float;
 
-// Alvo travado no momento
+// Currently locked target
 @addField(PlayerPuppet)
 private let m_knifeLockTarget: wref<GameObject>;
 
-// Configurações vindas do menu do CET
+// Settings received from the CET menu
 @addField(PlayerPuppet)
 private let m_knifeLockEnabled: Bool;
 
@@ -75,7 +76,7 @@ private let m_knifeLockGang: Bool;
 @addField(PlayerPuppet)
 private let m_knifeLockCivilian: Bool;
 
-// Métodos de acesso ao estado do giro e do alvo
+// Accessors for the rotation and target state
 @addMethod(PlayerPuppet)
 public final func GetKnifeLockYaw() -> Float {
     return this.m_knifeLockYaw;
@@ -102,7 +103,7 @@ public final func SetKnifeLockTarget(target: wref<GameObject>) -> Void {
     this.m_knifeLockTarget = target;
 }
 
-// Método chamado pelo menu do CET (init.lua) para enviar as configurações
+// Called by the CET menu (init.lua) to send the settings
 @addMethod(PlayerPuppet)
 public final func SetKnifeLockSettings(enabled: Bool, maxDistance: Float, viewAngle: Float, police: Bool, gang: Bool, civilian: Bool) -> Void {
     this.m_knifeLockEnabled = enabled;
@@ -114,12 +115,12 @@ public final func SetKnifeLockSettings(enabled: Bool, maxDistance: Float, viewAn
 }
 
 // -----------------------------------------------------------------------------
-// Lógica principal
+// Main logic
 // -----------------------------------------------------------------------------
 public class KnifeLockAim {
 
-    // Verifica se o grupo do alvo está habilitado no menu.
-    // Policial e civil são identificados pelo jogo; o restante conta como gangue.
+    // Checks whether the target's group is enabled in the menu.
+    // Police and civilians are identified by the game; everything else counts as a gang member.
     public static func IsGroupEnabled(player: ref<PlayerPuppet>, puppet: ref<ScriptedPuppet>) -> Bool {
         if !IsDefined(puppet) {
             return false;
@@ -136,7 +137,7 @@ public class KnifeLockAim {
         return player.m_knifeLockGang;
     }
 
-    // Verifica se a linha entre a mira e o ponto está livre de paredes e obstáculos
+    // Checks whether the line between the crosshair and the point is free of walls and obstacles
     public static func IsLineClear(player: ref<PlayerPuppet>, from: Vector4, to: Vector4) -> Bool {
         let spatial = GameInstance.GetSpatialQueriesSystem(player.GetGame());
         if !IsDefined(spatial) {
@@ -153,7 +154,7 @@ public class KnifeLockAim {
         return true;
     }
 
-    // Ângulo (graus) entre a mira e um ponto. Retorna 999 se o ponto estiver atrás.
+    // Angle (degrees) between the crosshair and a point. Returns 999 if the point is behind.
     public static func AngleToPoint(crosshairPos: Vector4, crosshairFwd: Vector4, point: Vector4) -> Float {
         let toPoint = Vector4.Normalize(point - crosshairPos);
         let dot = Vector4.Dot(crosshairFwd, toPoint);
@@ -165,18 +166,18 @@ public class KnifeLockAim {
             dot = 1.0;
         }
 
-        // sen(ângulo) = raiz(1 - cos²). Só é válido na frente (dot > 0).
+        // sin(angle) = sqrt(1 - cos²). Only valid in front (dot > 0).
         let sinAngle = SqrtF(ClampF(1.0 - dot * dot, 0.0, 1.0));
         return Rad2Deg(AsinF(ClampF(sinAngle, 0.0, 1.0)));
     }
 
-    // Verifica se o alvo travado ainda é válido
+    // Checks whether the locked target is still valid
     public static func IsTargetValid(player: ref<PlayerPuppet>, target: ref<GameObject>) -> Bool {
         if !IsDefined(target) {
             return false;
         }
 
-        // Morto ou nocauteado não é mais alvo
+        // Dead or knocked out is no longer a target
         if !ScriptedPuppet.IsAlive(target) || ScriptedPuppet.IsDefeated(target) {
             return false;
         }
@@ -185,13 +186,13 @@ public class KnifeLockAim {
         return dist <= player.m_knifeLockMaxDistance * KnifeLockConfig.HoldDistanceSlack();
     }
 
-    // Tenta manter o alvo travado. Retorna true e preenche 'head' se ele ainda valer.
+    // Tries to keep the locked target. Returns true and fills 'head' if it is still valid.
     public static func TryHoldTarget(player: ref<PlayerPuppet>, target: ref<GameObject>, crosshairPos: Vector4, crosshairFwd: Vector4, out head: Vector4) -> Bool {
         if !KnifeLockAim.IsTargetValid(player, target) {
             return false;
         }
 
-        // Grupo desabilitado no menu: solta o alvo
+        // Group disabled in the menu: release the target
         if !KnifeLockAim.IsGroupEnabled(player, target as ScriptedPuppet) {
             return false;
         }
@@ -201,13 +202,13 @@ public class KnifeLockAim {
             return false;
         }
 
-        // Fora da margem de travamento: solta o alvo
+        // Outside the hold margin: release the target
         let angle = KnifeLockAim.AngleToPoint(crosshairPos, crosshairFwd, headPos);
         if angle > player.m_knifeLockViewAngle + KnifeLockConfig.HoldAngleExtra() {
             return false;
         }
 
-        // Atrás de parede: solta o alvo
+        // Behind a wall: release the target
         if !KnifeLockAim.IsLineClear(player, crosshairPos, headPos) {
             return false;
         }
@@ -216,14 +217,14 @@ public class KnifeLockAim {
         return true;
     }
 
-    // Escolhe o alvo mais próximo da mira, dentro do cone de escolha.
+    // Chooses the target closest to the crosshair, within the selection cone.
     public static func FindNewTarget(player: ref<PlayerPuppet>, crosshairPos: Vector4, crosshairFwd: Vector4, out head: Vector4, out chosen: wref<GameObject>) -> Bool {
         let ts = GameInstance.GetTargetingSystem(player.GetGame());
         if !IsDefined(ts) {
             return false;
         }
 
-        // Consulta: NPCs dentro da distância configurada, sem alvos secundários
+        // Query: NPCs within the configured distance, without secondary targets
         let query: TargetSearchQuery;
         query = TSQ_NPC();
         query.testedSet = TargetingSet.Complete;
@@ -247,7 +248,7 @@ public class KnifeLockAim {
             if IsDefined(entity) && AIActionHelper.GetTargetSlotPosition(entity, n"Head", headPos) {
                 let angle = KnifeLockAim.AngleToPoint(crosshairPos, crosshairFwd, headPos);
 
-                // Só aceita alvos visíveis, com linha livre, de grupo habilitado
+                // Only accept targets visible to the game, with a clear line, from an enabled group
                 let clear = ts.IsVisibleTarget(player, entity)
                     && KnifeLockAim.IsLineClear(player, crosshairPos, headPos)
                     && KnifeLockAim.IsGroupEnabled(player, puppet);
@@ -264,7 +265,7 @@ public class KnifeLockAim {
         return found;
     }
 
-    // Gira a câmera localmente, somando o delta à orientação atual.
+    // Rotates the camera locally, adding the delta to the current orientation.
     public static func ApplyLocal(player: ref<PlayerPuppet>, deltaYaw: Float, deltaPitch: Float) -> Void {
         let cameraComponent = player.GetFPPCameraComponent();
         if !IsDefined(cameraComponent) {
@@ -275,15 +276,15 @@ public class KnifeLockAim {
         let euler = Quaternion.ToEulerAngles(current);
         euler.Yaw += deltaYaw;
         euler.Pitch = ClampF(euler.Pitch + deltaPitch, -KnifeLockConfig.MaxPitch(), KnifeLockConfig.MaxPitch());
-        // Só yaw e pitch são corrigidos. Zerar o roll evita a câmera inclinar
-        // (a conversão Euler/quaternion pode misturar yaw e roll).
+        // Only yaw and pitch are corrected. Zeroing the roll prevents the camera from tilting
+        // (the Euler/quaternion conversion can mix yaw and roll).
         euler.Roll = 0.0;
         cameraComponent.SetLocalOrientation(EulerAngles.ToQuat(euler));
     }
 
-    // Corrige a mira em direção ao ponto da cabeça.
-    // O erro é a direção até o alvo projetada nos eixos da mira:
-    //   f = frente, r = direita, u = cima.
+    // Corrects the aim toward the head position.
+    // The error is the direction to the target projected onto the crosshair axes:
+    //   f = forward, r = right, u = up.
     public static func SteerTo(player: ref<PlayerPuppet>, crosshairPos: Vector4, crosshairFwd: Vector4, aimPosition: Vector4, timeDelta: Float) -> Void {
         let f = Vector4.Normalize(crosshairFwd);
         let r = Vector4.Normalize(Vector4(f.Y, 0.0 - f.X, 0.0, 0.0));
@@ -298,7 +299,7 @@ public class KnifeLockAim {
             return;
         }
 
-        // Erro em graus. O yaw é invertido porque o giro da câmera vai no sentido oposto à projeção.
+        // Error in degrees. Yaw is inverted because the camera turns opposite to the projection.
         let yawError = 0.0 - Rad2Deg(AtanF(tx, tz));
         let pitchError = Rad2Deg(AtanF(ty, tz));
         let totalError = SqrtF(yawError * yawError + pitchError * pitchError);
@@ -307,14 +308,14 @@ public class KnifeLockAim {
             return;
         }
 
-        // Fração do erro a corrigir neste frame, com suavização exponencial
+        // Fraction of the error to correct this frame, with exponential smoothing
         let dt = ClampF(timeDelta, 0.001, 0.050);
         let response = 10.0 + 38.0 * ClampF(KnifeLockConfig.Strength(), 0.05, 1.0);
         let alpha = 1.0 - ExpF(-response * dt);
         let deltaYaw = yawError * alpha;
         let deltaPitch = pitchError * alpha;
 
-        // Limita a velocidade de giro por frame
+        // Limit the turn speed per frame
         let maxDelta = ClampF(KnifeLockConfig.MaxRate(), 30.0, 720.0) * ClampF(totalError / 20.0, 1.0, 2.0) * dt;
         let totalDelta = SqrtF(deltaYaw * deltaYaw + deltaPitch * deltaPitch);
         if totalDelta > maxDelta && totalDelta > 0.0001 {
@@ -323,7 +324,7 @@ public class KnifeLockAim {
             deltaPitch *= scale;
         }
 
-        // Respeita o giro total acumulado e aplica só a diferença
+        // Respect the accumulated total turn and apply only the difference
         let accumYaw = player.GetKnifeLockYaw();
         let accumPitch = player.GetKnifeLockPitch();
         let newYaw = ClampF(accumYaw + deltaYaw, -KnifeLockConfig.MaxYaw(), KnifeLockConfig.MaxYaw());
@@ -333,7 +334,7 @@ public class KnifeLockAim {
         player.SetKnifeLockAccum(newYaw, newPitch);
     }
 
-    // Desfaz o giro acumulado e solta o alvo travado
+    // Undoes the accumulated rotation and releases the locked target
     public static func Release(player: ref<PlayerPuppet>) -> Void {
         let accumYaw = player.GetKnifeLockYaw();
         let accumPitch = player.GetKnifeLockPitch();
@@ -346,15 +347,15 @@ public class KnifeLockAim {
         player.SetKnifeLockTarget(null);
     }
 
-    // Executado a cada frame enquanto o jogador está no estado de mira
+    // Runs every frame while the player is in the aiming state
     public static func Tick(player: ref<PlayerPuppet>, timeDelta: Float) -> Void {
-        // Mod desligado no menu
+        // Mod disabled in the menu
         if !player.m_knifeLockEnabled {
             KnifeLockAim.Release(player);
             return;
         }
 
-        // Só atua com arma de arremesso (facas e machados)
+        // Only acts with a throwing weapon (knives and axes)
         let weapon = GameObject.GetActiveWeapon(player) as WeaponObject;
         if !IsDefined(weapon) || !weapon.IsThrowable() {
             KnifeLockAim.Release(player);
@@ -373,27 +374,27 @@ public class KnifeLockAim {
 
         let head: Vector4;
 
-        // 1) Mantém o alvo travado, se ele ainda for válido
+        // 1) Keep the locked target, if it is still valid
         let locked = player.GetKnifeLockTarget();
         if KnifeLockAim.TryHoldTarget(player, locked, crosshairPos, crosshairFwd, head) {
             KnifeLockAim.SteerTo(player, crosshairPos, crosshairFwd, head, timeDelta);
             return;
         }
 
-        // 2) Senão, escolhe um alvo novo e trava nele
+        // 2) Otherwise choose a new target and lock onto it
         let chosen: wref<GameObject>;
         if KnifeLockAim.FindNewTarget(player, crosshairPos, crosshairFwd, head, chosen) {
             player.SetKnifeLockTarget(chosen);
             KnifeLockAim.SteerTo(player, crosshairPos, crosshairFwd, head, timeDelta);
         } else {
-            // 3) Nenhum alvo válido: desfaz a correção
+            // 3) No valid target: undo the correction
             KnifeLockAim.Release(player);
         }
     }
 }
 
 // -----------------------------------------------------------------------------
-// Hooks no jogo
+// Game hooks
 // -----------------------------------------------------------------------------
 
 @wrapMethod(PlayerPuppet)
@@ -401,7 +402,7 @@ protected cb func OnGameAttached() -> Bool {
     return wrappedMethod();
 }
 
-// Executa a lógica a cada frame enquanto o jogador está mirando
+// Runs the logic every frame while the player is aiming
 @wrapMethod(AimingStateEvents)
 protected func OnUpdate(timeDelta: Float, stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void {
     wrappedMethod(timeDelta, stateContext, scriptInterface);
@@ -412,7 +413,7 @@ protected func OnUpdate(timeDelta: Float, stateContext: ref<StateContext>, scrip
     }
 }
 
-// Ao sair da mira, desfaz o giro e solta o alvo
+// When aiming stops, undo the rotation and release the target
 @wrapMethod(AimingStateEvents)
 protected func OnExit(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void {
     wrappedMethod(stateContext, scriptInterface);
